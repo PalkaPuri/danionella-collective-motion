@@ -108,7 +108,45 @@ def get_second_jump_moments(subgroup_polarization, dt, fps=121):
     else:
         return np.empty((0, 5))
     
+def _avg_over_m(mx,my,F,nbins):
+    '''
+    Average F(mx,my) over bins in mx and my. Helper function for fitting alpha and beta from first and second jump moments.
 
+    Input
+        mx, my, F : 1D arrays of data points of same length
+        nbins : number of bins to use for mx and my
+
+    Returns:
+        avg_F = (nbins, nbins) array. 
+            avg_F[i,j] is  F averaged over data points whose my falls in the i-th bin and mx falls in the j-th bin.
+    '''
+    bin_edges = np.linspace(-1,1,nbins+1)
+    bin_indices_x = np.digitize(mx,bin_edges) - 1
+    bin_indices_y = np.digitize(my,bin_edges) - 1
+    avg_F = np.empty((len(bin_edges)-1,len(bin_edges)-1))
+    avg_F[:] = np.nan
+    for i in range(nbins):
+        for j in range(nbins):
+            mask = np.logical_and(bin_indices_y==i, bin_indices_x==j)
+            if np.any(mask):
+                avg_F[i,j] = np.nanmean(F[mask])
+    return avg_F
+
+def _Bij_inverse_function(dmxx, dmyy, dmxy):
+    '''
+    Convert second jump moments to B_xx, B_yy, B_xy. Helper function for fitting alpha and beta from first and second jump moments.
+
+    Input:
+        dmxx,dmyy,dmxy: arrays or matrices of second jump moments 
+    Returns:
+        B_xx,B_yy,B_xy: same dimension as the inputs
+    '''
+
+    B_xy2 = dmxy**2 / ((dmxx+dmyy)+2*np.sqrt(dmxx*dmyy-dmxy**2))
+    B_xx2 = (dmxx + np.sqrt(dmxx*dmyy-dmxy**2))**2/((dmxx+dmyy)+2*np.sqrt(dmxx*dmyy-dmxy**2))
+    B_yy2 = (dmyy + np.sqrt(dmxx*dmyy-dmxy**2))**2/((dmxx+dmyy)+2*np.sqrt(dmxx*dmyy-dmxy**2))
+    return B_xx2, B_yy2, B_xy2
+    
 def fit_alpha_beta_jointly_from_first_second_jump_moments(first_jump_moments, second_jump_moments, N, nbins=20):
     '''
     Fit model parameters alpha and beta jointly from first and second jump moments data.
@@ -121,49 +159,7 @@ def fit_alpha_beta_jointly_from_first_second_jump_moments(first_jump_moments, se
         alpha_fit : fitted value of alpha
         beta_fit : fitted value of beta
         r_squared : average R^2 across all equations and components 
-    '''
-
-    # helper functions
-    def _avg_over_m(mx,my,F,nbins):
-        '''
-        Average F(mx,my) over bins in mx and my.
-
-        Input
-            mx, my, F : 1D arrays of data points of same length
-            nbins : number of bins to use for mx and my
-
-        Returns:
-            avg_F = (nbins, nbins) array. 
-             avg_F[i,j] is  F averaged over data points whose my falls in the i-th bin and mx falls in the j-th bin.
-        '''
-        bin_edges = np.linspace(-1,1,nbins+1)
-        bin_indices_x = np.digitize(mx,bin_edges) - 1
-        bin_indices_y = np.digitize(my,bin_edges) - 1
-        avg_F = np.empty((len(bin_edges)-1,len(bin_edges)-1))
-        avg_F[:] = np.nan
-        for i in range(nbins):
-            for j in range(nbins):
-                mask = np.logical_and(bin_indices_y==i, bin_indices_x==j)
-                if np.any(mask):
-                    avg_F[i,j] = np.nanmean(F[mask])
-        return avg_F
-    
-    def _Bij_inverse_function(dmxx, dmyy, dmxy):
-        '''
-        Convert second jump moments to B_xx, B_yy, B_xy.
-
-        Input:
-            dmxx,dmyy,dmxy: arrays or matrices of second jump moments 
-        Returns:
-            B_xx,B_yy,B_xy: same dimension as the inputs
-        '''
-
-        B_xy2 = dmxy**2 / ((dmxx+dmyy)+2*np.sqrt(dmxx*dmyy-dmxy**2))
-        B_xx2 = (dmxx + np.sqrt(dmxx*dmyy-dmxy**2))**2/((dmxx+dmyy)+2*np.sqrt(dmxx*dmyy-dmxy**2))
-        B_yy2 = (dmyy + np.sqrt(dmxx*dmyy-dmxy**2))**2/((dmxx+dmyy)+2*np.sqrt(dmxx*dmyy-dmxy**2))
-        return B_xx2, B_yy2, B_xy2
-    
-    ### Main function body
+    '''    
 
     # ---------------------------------------------
     # Step 1. Average jump moment data 
