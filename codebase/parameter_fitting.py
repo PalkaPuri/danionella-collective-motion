@@ -266,3 +266,80 @@ def fit_alpha_beta_jointly_from_first_second_jump_moments(first_jump_moments, se
     r_squared_2_y = 1 - (ss_residuals_y / ss_total_y)
 
     return alpha_fit, beta_fit, (r_squared_1_x + r_squared_1_y + r_squared_2_x + r_squared_2_y)/4
+
+
+def get_single_fish_dtheta_vs_dt(single_fish_subgroups, subgroup_frames, head_angles, dt_array):
+    '''
+    Calculate chnage in head angle dtheta for single fish subgroups (Ng=1) for time lags dt_array.
+    
+    Input:
+        single_fish : list of single fish subgroups
+        single_fish_frames : list of (start,end) frame indices for each single fish subgroup
+        head_angles : (N,T) array of heading angles of all fish across time
+        dt_array : array of time lags (in frames) to calculate dtheta for
+    Returns:
+        dtheta_vs_dt : array with 2 columns: dt, dtheta pooled across all single fish subgroups
+    '''
+    dtheta_vs_dt = []
+
+    for (fish,times) in zip(single_fish_subgroups, subgroup_frames):
+        lifetime = times[1] - times[0]
+        head_angles_single_fish = head_angles[fish, times[0]:times[1]].reshape(-1) 
+        dt_array_truncated = dt_array[dt_array < lifetime]
+        for dt in dt_array_truncated:
+            dtheta = head_angles_single_fish[dt:] -  head_angles_single_fish[:-dt]
+            # wrap dtheta to be in the range [-pi, pi]
+            dtheta[dtheta<-np.pi] = dtheta[dtheta<-np.pi]+2*np.pi
+            dtheta[dtheta>np.pi] = dtheta[dtheta>np.pi]-2*np.pi  
+            dtheta_vs_dt.append(np.column_stack((np.full(len(dtheta), dt), dtheta)))
+    return np.concatenate(dtheta_vs_dt,axis=0)
+
+def get_MSD_dtheta_vs_dt(dtheta_vs_dt):
+    '''
+    Calculate mean squared change in head angle <dtheta^2> for each time lag dt
+    
+    Input:
+        dtheta_vs_dt : array with 2 columns: dt, dtheta pooled across all single fish subgroups
+    Returns:
+        MSD_vs_dt : array with 2 columns: dt, <dtheta^2>
+        n_data_points : array with 2 columns: dt, number of data points used to calculate <dtheta^2> for each dt
+    '''
+    dt_array = np.unique(dtheta_vs_dt[:,0])
+    MSD_vs_dt = np.zeros((len(dt_array), 2))
+    n_data_points = np.zeros((len(dt_array), 2))
+    for i, dt in enumerate(dt_array):
+        dtheta = dtheta_vs_dt[dtheta_vs_dt[:,0]==dt,1]
+        MSD_vs_dt[i] = [dt, np.nanmean(dtheta**2)]
+        n_data_points[i] = [dt, len(dtheta)]
+    return MSD_vs_dt, n_data_points
+
+def fit_MSD_slope_linear_regime(MSD_vs_dt, dt_linear, fps=121):
+    '''
+    Fit slope of MSD vs dt in the linear regime (dt > dt_linear)
+    
+    Input:
+        MSD_vs_dt : array with 2 columns: dt (in frames), <dtheta^2>
+        dt_linear : time lag (in s) above which to fit linear regime
+        fps : frames per second
+    Returns:
+        slope : fitted slope of MSD vs dt in the linear regime
+    '''
+    # convert all times to seconds!
+    dt = MSD_vs_dt[:,0] / fps
+    MSD = MSD_vs_dt[:,1]
+    mask = dt > dt_linear
+    slope, _ = np.polyfit(dt[mask], MSD[mask], 1)
+    return slope
+
+def fit_s_epsilon_jointly_bounded(alpha, slope, s_upper_bound):
+    def residuals(params):
+        s, epsilon  = params
+        # Calculate residuals for each equation 
+        res1 = (slope-s*epsilon)
+        res2 = alpha - s * (1 - np.exp(-epsilon/2))
+        # Return both residuals as a vector
+        return np.array([res1, res2])  
+    initial_guess = [1, 1]  # Initial guess for [s, epsilon]
+    bounds = ([0, 0], [s_upper_bound, np.inf])  # Bounds for parameters
+    result = least_squares(residuals, initial_guess, bounds=bounds)
+    return result.x
