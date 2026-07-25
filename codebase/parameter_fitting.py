@@ -313,7 +313,7 @@ def get_MSD_dtheta_vs_dt(dtheta_vs_dt):
         n_data_points[i] = [dt, len(dtheta)]
     return MSD_vs_dt, n_data_points
 
-def fit_MSD_slope_linear_regime(MSD_vs_dt, dt_linear, fps=121):
+def fit_MSD_curve_linear_regime(MSD_vs_dt, dt_linear, fps=121):
     '''
     Fit slope of MSD vs dt in the linear regime (dt > dt_linear)
     
@@ -328,8 +328,8 @@ def fit_MSD_slope_linear_regime(MSD_vs_dt, dt_linear, fps=121):
     dt = MSD_vs_dt[:,0] / fps
     MSD = MSD_vs_dt[:,1]
     mask = dt > dt_linear
-    slope, _ = np.polyfit(dt[mask], MSD[mask], 1)
-    return slope
+    slope, intercept = np.polyfit(dt[mask], MSD[mask], 1)
+    return slope, intercept
 
 def fit_s_epsilon_jointly_bounded(alpha, slope, s_upper_bound):
     def residuals(params):
