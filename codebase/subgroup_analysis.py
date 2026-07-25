@@ -1,5 +1,6 @@
 import numpy as np
 
+# ---- identify interacting subgroups of fish based on their positions in current frame ---- 
 def get_graph(x,y,L):
     '''
     Input:
@@ -47,7 +48,7 @@ def find_connected_subgroups(graph):
 
     return subgroups
 
-
+# --- identify subgroups of interacting fish in an experiment/simulation & frames for which they exist ---
 def _save_and_remove_nonexistent_subgroups(active_subgroups, current_subgroups, archived_subgroups, active_start_frames, current_frame, archived_frames):
     '''
     This function identifies subgroups of fish that no longer exist in the current frame 
@@ -131,3 +132,113 @@ def annotate_subgroups_framewise(x, y, L):
 
     return archived_subgroups, np.vstack(archived_frames)
 
+def get_num_neighbours(x,y,L):
+    '''
+    Input
+        x,y : (N, T) arrays of x and y positions of fish across time
+        L : interaction distance
+    Output
+        n_neighbours: array of number of neighbours of each fish. shape= (N, frames)
+    '''
+    
+    N,T = x.shape
+    valid_frames = np.flatnonzero(np.all(np.isfinite(x + y),axis=0))
+    neighbours = np.zeros((N,T))
+    for i in range(N):
+        distance = (x - x[i,:])**2 + (y - y[i,:])**2
+        distance[i,:] = np.inf
+        neighbours[i,:] = np.count_nonzero(distance<L**2,axis=0)
+    return neighbours[:,valid_frames].reshape(-1)
+
+# --- assign a numeric system state variable to each frame based on the subgroup configuration & enumerate transitions ---
+def _generate_sum_partitions(n, start=1, path=None, partitions=None):
+    ''' Generate all possible partitions of a number n into a sum of positive integers. '''
+    if path is None:
+        path = []
+    if partitions is None:
+        partitions = []
+    if n == 0:
+        partitions.append(path.copy())
+        return
+    for i in range(start, n + 1):
+        _generate_sum_partitions(n - i, i, path + [i], partitions)
+    return partitions
+
+def _assign_state_var(curr_state, state_list):
+    for i,state in enumerate(state_list):
+        if sorted(curr_state)==state:
+            return i
+    return -1
+
+def _compute_transitions(state_variable, num_states):
+    transition_matrix = np.zeros((num_states, num_states))
+    for i in range(len(state_variable)-1):
+        if state_variable[i] != -1 and state_variable[i+1] != -1:
+            transition_matrix[state_variable[i], state_variable[i+1]] += 1
+    return transition_matrix
+
+def assign_state_variable_and_get_transitions(x,y,L,states_list=None):
+    '''
+    This function assigns a numeric system state variable to each frame based on the subgroup configuration in that frame, and computes the transition probabilities between states.
+    Inputs:
+        x,y : (N, T) arrays of x and y positions of fish across time
+        L : interaction distance
+        states_list : list of all possible states (optional). If not provided, it will be generated based on the number of fish.
+    Returns:
+        state_variable : (T,) array of state variable for each frame
+        transition_matrix : (num_states, num_states) array of transition counts between states
+    '''
+
+    N, T = x.shape
+    if states_list is None:
+        states_list = _generate_sum_partitions(N)
+
+    system_state_var = np.full(T, -1)  # Initialize with -1 for invalid frames
+    valid_frames = np.flatnonzero(np.all(np.isfinite(x), axis=0) & np.all(np.isfinite(y), axis=0))
+
+    # only find system state for valid frames
+    for current_frame in valid_frames:
+        graph = get_graph(x[:, current_frame], y[:, current_frame], L)
+        current_subgroups = find_connected_subgroups(graph)
+        subgroup_sizes = [len(subgroup) for subgroup in current_subgroups]
+        system_state_var[current_frame] = _assign_state_var(subgroup_sizes, states_list)
+
+    num_states = len(states_list)
+    transition_matrix = _compute_transitions(system_state_var, num_states)
+    return system_state_var, transition_matrix
+
+# --- spatial density plots ---
+def convert_to_focal_distance(i,x,y,theta):
+    '''
+    Input
+        i : focal fish index
+        x,y,theta : arrays, each with shape (N,T)
+        
+    Output
+        dFB: front-back distance of all fish wrt focal fish : (N,T)
+        dLR: left-right distance of all fish wrt focal fish : (N,T)
+        
+        [set dFB,dLR for the focal fish itself to be nan]
+        
+    '''
+    N,T = x.shape
+    dFB = np.empty((N,T)) #front-back
+    dFB[:] = np.nan
+    
+    dLR = np.empty((N,T)) #left-right 
+    dLR[:] = np.nan
+    
+    dx = x - x[i,:]
+    dy = y - y[i,:]
+    d = np.sqrt(dx**2 + dy**2)
+    
+    dx[i,:] = np.nan
+    dy[i,:] = np.nan
+    d[i,:] = np.nan
+    
+    viewing_angles = theta[i,:] - np.arctan2(dy,dx)
+    
+    dFB = d * np.cos(viewing_angles) #dFB>0 implies neighbour in front
+    dLR = d * np.sin(viewing_angles) #dLR>0 implies neighbour to the right
+
+    return dFB, dLR
