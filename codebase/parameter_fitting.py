@@ -50,8 +50,10 @@ def get_autocorrelation_and_avg_timescale(subgroup_polarization, dt_array):
     # calculate decay timescale for the average
     def exp_decay(x, timescale):
         return np.exp(-x / timescale)
-    
-    avg_autcorr = np.mean(autocorrelation, axis=(0,1))  # average over subgroups and m_x/m_y
+
+    auto_corr = np.concatenate((autocorrelation[0], autocorrelation[1]), axis=0)  # combine m_x and m_y
+    avg_autcorr = np.nanmean(auto_corr, axis=0)  # average over subgroups and m_x/m_y
+    #avg_autcorr = np.mean(autocorrelation, axis=(0,1))  # average over subgroups and m_x/m_y
     nan_mask = np.isfinite(avg_autcorr)
     fit, _ = curve_fit(exp_decay, dt_array[nan_mask], avg_autcorr[nan_mask])
     return autocorrelation, fit[0]
@@ -335,7 +337,7 @@ def fit_s_epsilon_jointly_bounded(alpha, slope, s_upper_bound):
     def residuals(params):
         s, epsilon  = params
         # Calculate residuals for each equation 
-        res1 = (slope-s*epsilon)
+        res1 = (slope-s*epsilon)/np.pi**2
         res2 = alpha - s * (1 - np.exp(-epsilon/2))
         # Return both residuals as a vector
         return np.array([res1, res2])  
