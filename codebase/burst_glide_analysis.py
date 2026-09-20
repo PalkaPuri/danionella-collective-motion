@@ -107,12 +107,14 @@ def find_complete_burst_glide_cycles(v, min_burst_duration, min_glide_duration, 
                 burst_glide_cycles.append(segment_bg_cycles)        
     return np.concatenate(burst_glide_cycles).astype(int)
 
-def compute_pairwise_response_features(focal_fish_idx, neighbor_idxs, burst_glide_cycles_all, head_angles_all, x_all, y_all, arena_radius, fps=121):
+def compute_pairwise_response_features(focal_fish_idx, neighbor_idxs, burst_glide_cycles_all, head_angles_all, x_all, y_all, v_all, arena_radius, fps=121, seed=42):
+    rng = np.random.default_rng(seed)
 
     # start and peak of response for focal fish
     cycle_starts = burst_glide_cycles_all[focal_fish_idx][:,0] # start of burst
     peaks = burst_glide_cycles_all[focal_fish_idx][:,1] # end of burst
-    
+    N = len(cycle_starts)
+
     # compute each feature and save to dictionary
     features = {}
 
@@ -125,7 +127,7 @@ def compute_pairwise_response_features(focal_fish_idx, neighbor_idxs, burst_glid
         # reaction time: time since last peak of neighbor
         neighbor_peaks = burst_glide_cycles_all[idx][:,1]
         t_ind = np.searchsorted(a=neighbor_peaks, v =cycle_starts) - 1
-        features[f"reaction_time_{i}"] = (cycle_starts- neighbor_peaks[t_ind])/fps
+        features[f"reaction_time_{i}"] = (cycle_starts- neighbor_peaks[t_ind])/fps + (rng.random(N)-0.5)/fps # uniform jitter by +/- 0.5 frame
         # set this to nan if no neighbor peak before focal fish burst
         features[f"reaction_time_{i}"][t_ind<0] = np.nan
 
@@ -147,16 +149,26 @@ def compute_pairwise_response_features(focal_fish_idx, neighbor_idxs, burst_glid
     features["cum_delta_theta"] = cumsum_dtheta_per_frame[peaks] - cumsum_dtheta_per_frame[cycle_starts]
 
     # length of burst
-    features["T_burst"] = (peaks - cycle_starts)/fps
+    features["T_burst"] = (peaks - cycle_starts)/fps + (rng.random(N)-0.5)/fps # uniform jitter by +/- 0.5 frame
 
     # initial distance to wall 
     features["distance_to_wall"] = arena_radius - np.sqrt((x_all[focal_fish_idx,cycle_starts] - arena_radius)**2 + (y_all[focal_fish_idx,cycle_starts] - arena_radius)**2)
 
+    # delta_v
+    features["delta_v"] = v_all[focal_fish_idx,peaks] - v_all[focal_fish_idx, cycle_starts]
+
     # sort all neighbor-wise features by initial distance to focal fish
     neighbor_distances = np.array([features[f"initial_L_{i}"] for i in range(len(neighbor_idxs))])
     sorted_neighbor_idxs = np.argsort(neighbor_distances,axis=0)
-    
-    
-    return features
+
+    features_sorted = features.copy()
+    neighborwise_features = ["initial_L","delta_L","reaction_time","initial_m","delta_m","cosine_avoidance"]
+    for f in neighborwise_features:
+        f_values = np.array([features[f"{f}_{i}"] for i in range(len(neighbor_idxs))])
+        f_values_sorted = np.take_along_axis(f_values, sorted_neighbor_idxs, axis=0)
+        for i in range(len(neighbor_idxs)):
+            features_sorted[f"{f}_{i}"] = f_values_sorted[i]
+
+    return features_sorted
 
     
