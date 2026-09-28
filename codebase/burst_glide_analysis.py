@@ -146,7 +146,7 @@ def compute_pairwise_response_features(focal_fish_idx, neighbor_idxs, burst_glid
     dtheta_per_frame[dtheta_per_frame<-np.pi] = dtheta_per_frame[dtheta_per_frame<-np.pi] + 2*np.pi
     dtheta_per_frame[dtheta_per_frame>np.pi] = dtheta_per_frame[dtheta_per_frame>np.pi] - 2*np.pi
     cumsum_dtheta_per_frame = np.append(0,np.cumsum(dtheta_per_frame))
-    features["cum_delta_theta"] = cumsum_dtheta_per_frame[peaks] - cumsum_dtheta_per_frame[cycle_starts]
+    features["cum_delta_theta"] = np.abs(cumsum_dtheta_per_frame[peaks] - cumsum_dtheta_per_frame[cycle_starts])
 
     # length of burst
     features["T_burst"] = (peaks - cycle_starts)/fps + (rng.random(N)-0.5)/fps # uniform jitter by +/- 0.5 frame
